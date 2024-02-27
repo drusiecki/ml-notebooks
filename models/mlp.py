@@ -73,8 +73,7 @@ class MLP:
     def train_stochastic_batch(self, X, Y, iters=100, lrate=0.01, batch_size=100):
         Y = Y.reshape(-1, 1)
         for i in range(iters):
-            X_batch = self.get_stochastic_batch(X, batch_size)
-            y_batch = self.get_stochastic_batch(Y, batch_size)
+            X_batch, y_batch = self.get_stochastic_batch(X, Y, batch_size)
             self._learn_batch(X_batch, y_batch, lrate)
     
     def _learn(self, X, Y, lrate=0.01):
@@ -84,16 +83,16 @@ class MLP:
             # self._learn_batch(x, y, lrate)
             y_pred, layer_outputs, layer_activations = self._forward_pass(x, intermediate=True)
             
-            nll_gradient = -y/y_pred + (1-y)/(1-y_pred)
-            d = nll_gradient * self.actfd(layer_outputs[-1])
+            loss_function_derivative = self.loss_function_dx(y_pred, y) # -y/y_pred + (1-y)/(1-y_pred)
+            backprop_gradient = loss_function_derivative * self.actfd(layer_outputs[-1])
             
-            W_grads = []
+            W_updates = []
             for i in range(len(self.W)-1, -1, -1):
-                W_grads.append(np.outer(layer_activations[i].T, d))
-                d = np.matmul(d, self.W[i].T) * self.actfd(layer_outputs[i-1])
+                W_updates.append(np.outer(layer_activations[i].T, backprop_gradient))
+                backprop_gradient = np.matmul(backprop_gradient, self.W[i].T) * self.actfd(layer_outputs[i-1])
                 
-            W_grads = W_grads[::-1]
-            self.W = [W - lrate*grad for W, grad in zip(self.W, W_grads)]
+            W_updates = W_updates[::-1]
+            self.W = [W - lrate*grad for W, grad in zip(self.W, W_updates)]
             
     def get_next_batch(self, X, index, batch_size):
         n_cases = X.shape[0]
@@ -102,9 +101,9 @@ class MLP:
         new_index = index_to % n_cases
         return batch, new_index
     
-    def get_stochastic_batch(self, X, batch_size):
+    def get_stochastic_batch(self, X, Y, batch_size):
         indices = np.random.choice(X.shape[0], batch_size, replace=False)
-        return X[indices,:]
+        return X[indices,:], Y[indices,:]
     
     # X is (n_cases, n_features), Y is (n_cases, n_outputs)
     # whole dataset is computed at once
@@ -115,12 +114,12 @@ class MLP:
         y_pred, layer_outputs, layer_activations = self._forward_pass(X, intermediate=True)
 
         loss_function_derivative = self.loss_function_dx(y_pred, Y)
-        d = loss_function_derivative * self.actfd(np.sum(layer_outputs[-1], axis=0).reshape(1, -1))
+        backprop_gradient = loss_function_derivative * self.actfd(np.sum(layer_outputs[-1], axis=0).reshape(1, -1))
 
-        W_grads = []
+        W_updates = []
         for i in range(len(self.W)-1, -1, -1):
-            W_grads.append(np.outer(np.sum(layer_activations[i], axis=0).reshape(1, -1).T, d))
-            d = np.matmul(d, self.W[i].T) * self.actfd(np.sum(layer_outputs[i-1], axis=0).reshape(1, -1))
+            W_updates.append(np.outer(np.sum(layer_activations[i], axis=0).reshape(1, -1).T, backprop_gradient))
+            backprop_gradient = np.matmul(backprop_gradient, self.W[i].T) * self.actfd(np.sum(layer_outputs[i-1], axis=0).reshape(1, -1))
             
-        W_grads = W_grads[::-1]
-        self.W = [W - lrate*grad for W, grad in zip(self.W, W_grads)]
+        W_updates = W_updates[::-1]
+        self.W = [W - lrate*grad for W, grad in zip(self.W, W_updates)]
